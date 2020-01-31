@@ -1,0 +1,581 @@
+const Post = require('../models/post');
+const PostComment = require('../models/postComment');
+const Users = require('../models/users');
+const Category=require('../models/category');
+const Boom = require('boom');
+const uniqid = require('uniqid');
+const fs = require("fs");
+const Hapi = require("hapi");
+const ObjectID= require('mongoose').mongo.ObjectID;
+
+module.exports = {
+		uploadPost : async (request, h) => {
+			var authenticate=await Users.findOne({_id: request.payload.user_id,access_key:request.payload.access_key});
+			if(authenticate==null){
+				    let err= Boom.unauthorized('Invalid request');
+	                err.output.payload.response = new Object();
+	                return err;  
+			}
+			var category=await Category.count({_id:request.payload.category});
+			if(category!=request.payload.category.length){
+					let err= Boom.unauthorized('Category not exists');
+	                err.output.payload.response = new Object();
+	                return err;  		
+			}
+			var image=uniqid()+'.png';
+			var likes=[];
+			var comments=[];
+	        var data =new Post({
+			    user_id : request.payload.user_id,
+			    category : request.payload.category,
+			    caption : request.payload.caption,
+			    location : request.payload.location,
+			    lat : request.payload.lat,
+			    lon : request.payload.lon,
+			    image,
+			    comments,
+			    likes
+	        });
+
+ 			request.payload["image"].pipe(fs.createWriteStream("./api/upload/posts/" + image))
+
+	        var dataSave=await data.save();
+
+	        return h.response({ statusCode: 200, error:'', message:''}).code(200);
+
+		},
+		updatePost : async (request, h) => {
+			var authenticate=await Users.findOne({_id: request.payload.user_id,access_key:request.payload.access_key});
+			if(authenticate==null){
+				    let err= Boom.unauthorized('Invalid request');
+	                err.output.payload.response = new Object();
+	                return err;  
+			}
+			var category=await Category.count({_id:request.payload.category});
+
+			if(category!=request.payload.category.length){
+					let err= Boom.unauthorized('Category not exists');
+	                err.output.payload.response = new Object();
+	                return err;  		
+			}
+
+	      		var updateData=await Post.findOneAndUpdate({_id: request.payload.post_id,user_id:request.payload.user_id},{category : request.payload.category,
+			    caption : request.payload.caption,
+			    location : request.payload.location,
+			    lat : request.payload.lat,
+			    lon : request.payload.lon},{new:true});
+
+	        return h.response({ statusCode: 200, error:'', message:''}).code(200);
+		},
+		likeUnlike : async (request, h) =>{
+			var authenticate=await Users.findOne({_id: request.payload.user_id,access_key:request.payload.access_key});
+			if(authenticate==null){
+				    let err= Boom.unauthorized('Invalid request');
+	                err.output.payload.response = new Object();
+	                return err;  
+			}
+
+
+			var aa=await Post.count({_id:request.payload.post_id, likes:{$elemMatch:{ user_id: request.payload.user_id}}});
+			if(aa>0){
+				await Post.update({_id:request.payload.post_id},{ $pull: { likes: { user_id: request.payload.user_id } } });
+			}
+			else{
+				await Post.findOneAndUpdate({_id:request.payload.post_id},{$addToSet:{likes: {user_id:request.payload.user_id}}});	
+			}
+			return h.response({ statusCode: 200, error:'', message:'Successfull'}).code(200);
+		},
+		commentPost : async (request, h) =>{
+			var authenticate=await Users.findOne({_id: request.payload.user_id,access_key:request.payload.access_key});
+			if(authenticate==null){
+				    let err= Boom.unauthorized('Invalid request');
+	                err.output.payload.response = new Object();
+	                return err;  
+			}
+			var likes=[];
+			var comment={
+				comment:request.payload.comment,
+				user_id:request.payload.user_id,
+				likes
+			}
+			await Post.findOneAndUpdate({_id:request.payload.post_id},{$addToSet:{comments: comment}});	
+			return h.response({ statusCode: 200, error:'', message:'Successfull'}).code(200);
+		},
+		commentUpdate: async (request, h) =>{
+	
+			var authenticate=await Users.findOne({_id: request.payload.user_id,access_key:request.payload.access_key});
+			if(authenticate==null){
+				    let err= Boom.unauthorized('Invalid request');
+	                err.output.payload.response = new Object();
+	                return err;  
+			}			
+			await Post.findOneAndUpdate({comments: {$elemMatch:{_id:request.payload.comment_id}},_id:request.payload.post_id},{'comments.$.comment':request.payload.comment});
+			return h.response({ statusCode: 200, error:'', message:'Successfull'}).code(200);
+		},
+		commentlikeUnlike:async (request, h) => {
+			var authenticate=await Users.findOne({_id: request.payload.user_id,access_key:request.payload.access_key});
+			if(authenticate==null){
+				    let err= Boom.unauthorized('Invalid request');
+	                err.output.payload.response = new Object();
+	                return err;  
+			}
+			return 2;
+
+			var aa=await PostComment.count({_id:request.payload.comment_id, likes:{$elemMatch:{ user_id: request.payload.user_id}}});
+			if(aa>0){
+				await PostComment.update({_id:request.payload.comment_id},{ $pull: { likes: { user_id: request.payload.user_id } } });
+			}
+			else{
+				await PostComment.findOneAndUpdate({_id:request.payload.comment_id},{$addToSet:{likes: {user_id:request.payload.user_id}}});	
+			}
+			return h.response({ statusCode: 200, error:'', message:'Successfull'}).code(200);
+		},
+		allComment:async (request, h) =>{
+			var authenticate=await Users.findOne({_id: request.payload.user_id,access_key:request.payload.access_key});
+			if(authenticate==null){
+				    let err= Boom.unauthorized('Invalid request');
+	                err.output.payload.response = new Object();
+	                return err;  
+			}
+
+			const aaa= await Post.aggregate([
+					{
+						$match:{_id:new ObjectID(request.payload.post_id)}
+					},
+					{
+				      $unwind: "$comments"
+				   },
+				   {
+				      $replaceRoot: { newRoot: "$comments"}
+				   },
+				   	{
+				   $lookup:
+				       {
+				         from: 'users',
+				         localField: "user_id",
+				         foreignField: "_id",
+				         as: "userData"
+				       }
+					},		
+					{
+						'$unwind':'$userData'
+					},
+					{
+						$project:{userComment:"$comment",_id:1,commentLikes:"$likes",created_at:1,user_id:1,userName:"$userData.name",userImage:"http://73.46.166.24/image/user/"}
+					},
+				   { $skip : request.payload.offset },
+				   { $limit : request.payload.limit }				
+				   ])
+
+			 return h.response({ statusCode: 200, error:'', message:'', response:aaa}).code(200);
+		},
+		allLikes:async (request, h) =>{
+			var authenticate=await Users.findOne({_id: request.payload.user_id,access_key:request.payload.access_key});
+			if(authenticate==null){
+				    let err= Boom.unauthorized('Invalid request');
+	                err.output.payload.response = new Object();
+	                return err;  
+			}	
+
+			const aaa= await Post.aggregate([
+					{
+						$match:{_id:new ObjectID(request.payload.post_id)}
+					},
+					{
+				      $unwind: "$likes"
+				   },
+				   {
+				      $replaceRoot: { newRoot: "$likes"}
+				   },
+				   	{
+				   $lookup:
+				       {
+				         from: 'users',
+				         localField: "user_id",
+				         foreignField: "_id",
+				         as: "userData"
+				       }
+					},		
+					{
+						'$unwind':'$userData'
+					},
+					{
+						$project:{comment:1,
+							_id:1,
+							likes:1,
+							created_at:1,
+							user_id:1,
+							userName:"$userData.name",
+							hasFollow : {
+	                            $in:[1,{
+	                                $setDifference:[
+	                                {$map:{
+	                                         input:"$userData.follow",
+	                                         as:'following',
+	                                         in:{$cond:{ if: {$eq: ["$$following.user_id" , ObjectID(request.payload.user_id)]},then:1,else:0}}
+	                                        }},
+	                                [false]]
+	                            }]
+                         	},
+							follwer:{$size:"$userData.follower"},
+							userImage:"http://73.46.166.24/image/user/"}
+					},
+				   { $skip : request.payload.offset },
+				   { $limit : request.payload.limit }				
+				   ])
+
+			 return h.response({ statusCode: 200, error:'', message:'', response:aaa}).code(200);
+		},
+		allPosts:async (request, h) =>{
+
+		var authenticate=await Users.findOne({_id: request.payload.user_id,access_key:request.payload.access_key});
+		if(authenticate==null){
+			    let err= Boom.unauthorized('Invalid request');
+                err.output.payload.response = new Object();
+                return err;  
+		}				
+
+		var ss=await Post.aggregate
+		(
+			[
+			{
+				   $lookup:
+				       {
+				         from: 'users',
+				         pipeline: [
+					         { $match : { _id:ObjectID(request.payload.user_id) } },
+					         { $project: { favourite: 1, _id: 1,name:1 } }
+				         ],
+				         as: "myData"
+				       }
+				},
+				{
+					'$unwind':'$myData'
+				},
+				{
+				   $lookup:
+				       {
+				         from: 'users',
+				         localField: "user_id",
+				         foreignField: "_id",
+				         as: "userData"
+				       }
+				},		
+				{
+					'$unwind':'$userData'
+				},
+				   {
+				     $lookup:
+				         {
+				            from: "categories",
+				            localField: "category",
+				            foreignField: "_id",
+				            as: "category"
+				        }
+				  },
+		     	  {
+					$project:
+						{
+						 	user_id:1,
+						 	access_key:1,
+						 	location:1,
+						 	category:1,
+						 	caption:1,
+						 	created_at:1,
+					 		likes: {$size : "$likes" },
+					 		hasFav : {
+                            $in:[1,{
+                                $setDifference:[
+                                {$map:{
+                                         input:"$myData.favourite",
+                                         as:'favourite',
+                                         in:{$cond:{ if: {$eq: ["$$favourite.post_id" , '$_id']},then:1,else:0}}
+                                        }},
+                                [false]]
+                            }]
+                            },
+					 		hasLike : {
+                            $in:[1,{
+                                $setDifference:[
+                                {$map:{
+                                         input:"$likes",
+                                         as:'like',
+                                         in:{$cond:{ if: {$eq: ["$$like.user_id" , ObjectID(request.payload.user_id)]},then:1,else:0}}
+                                        }},
+                                [false]]
+                            }]
+                            },
+					 		comment:{$size:"$comments"},
+					 		postImage: {$concat:["http://73.46.166.24/image/posts/","$image"]},
+					 		userData:{name:1,_id:1,image:{$concat:["http://73.46.166.24/image/user/"]}}
+						}	
+				},
+				   {$sort:{created_at:-1}},
+				   { $skip : request.payload.offset },
+				   { $limit : request.payload.limit }	
+
+			]
+			
+		);
+				// return 1;
+			 return h.response({ statusCode: 200, error:'', message:'', response:ss}).code(200);
+		},
+		followUser:async (request, h)=>{
+			var authenticate=await Users.findOne({_id: request.payload.user_id,access_key:request.payload.access_key});
+			if(authenticate==null){
+				    let err= Boom.unauthorized('Invalid request');
+	                err.output.payload.response = new Object();
+	                return err;  
+			}
+			
+			var exist=await Users.count({_id:request.payload.user_id, follow:{$elemMatch:{ user_id: request.payload.follow_id}}});
+			if(exist>0){
+				await Users.update({_id:request.payload.user_id},{$pull: {follow:{ user_id: request.payload.follow_id}}});
+				await Users.update({_id:request.payload.follow_id},{$pull: {follower:{ user_id: request.payload.user_id}}});
+			}
+			else{
+				await Users.findOneAndUpdate({_id:request.payload.user_id},{$addToSet: {follow:{ user_id: request.payload.follow_id}}});
+				await Users.findOneAndUpdate({_id:request.payload.follow_id},{$addToSet: {follower:{ user_id: request.payload.user_id}}});
+			}
+
+			return h.response({ statusCode: 200, error:'', message:'Successfull'}).code(200);
+
+		},
+		favouriteUser:async (request, h)=>{
+			var authenticate=await Users.findOne({_id: request.payload.user_id,access_key:request.payload.access_key});
+			if(authenticate==null){
+				    let err= Boom.unauthorized('Invalid request');
+	                err.output.payload.response = new Object();
+	                return err;  
+			}
+
+			var count=await Users.count({_id:request.payload.user_id, favourite:{$elemMatch:{ post_id: request.payload.post_id}}});
+			if(count>0){
+
+				await Users.update({_id:request.payload.user_id},{ $pull: { favourite: { post_id: request.payload.post_id } } });
+			}
+			else{
+
+				await Users.findOneAndUpdate({_id:request.payload.user_id},{$addToSet:{favourite: {post_id:request.payload.post_id}}});	
+			}
+			return h.response({ statusCode: 200, error:'', message:'Successfull'}).code(200);	
+
+		},
+		followerFollowingUser:async(request, h)=>{
+			var authenticate=await Users.findOne({_id: request.payload.user_id,access_key:request.payload.access_key});
+			if(authenticate==null){
+				    let err= Boom.unauthorized('Invalid request');
+	                err.output.payload.response = new Object();
+	                return err;  
+			}
+
+			if(request.payload.type==1){
+				var data=await Users.aggregate([
+				{
+					$match:{_id:ObjectID(request.payload.viewer)}
+				},
+				{
+					$project:{follow:1,_id:0}
+				},		
+				{
+					'$unwind':'$follow'
+				},
+			   	{
+			      $replaceRoot: { newRoot: "$follow"}
+			  	},
+			  	{
+				   $lookup:
+				       {
+				         from: 'users',
+				         localField: "user_id",
+				         foreignField: "_id",
+				         as: "userData"
+				       }
+				},		
+				{
+					'$unwind':'$userData'
+				},
+				{
+					$project:{user_id:1,
+						_id:0,
+						userName:"$userData.name",
+						follow:{$size : "$userData.follow"},
+						hasFollow : {
+                            $in:[1,{
+                                $setDifference:[
+                                {$map:{
+                                         input:"$userData.follow",
+                                         as:'following',
+                                         in:{$cond:{ if: {$eq: ["$$following.user_id" , ObjectID(request.payload.user_id)]},then:1,else:0}}
+                                        }},
+                                [false]]
+                            }]
+                         },
+						follower:{$size:"$userData.follower"},
+						image:"http://73.46.166.24/image/user/"}
+				}	
+				]);
+			}
+			else if(request.payload.type==2){
+				var data=await Users.aggregate([
+				{
+					$match:{_id:ObjectID(request.payload.viewer)}
+				},
+				{
+					$project:{follower:1,_id:0}
+				},		
+				{
+					'$unwind':'$follower'
+				},
+			    {
+			      $replaceRoot: { newRoot: "$follower"}
+			    },
+			    {
+				   $lookup:
+				       {
+				         from: 'users',
+				         localField: "user_id",
+				         foreignField: "_id",
+				         as: "userData"
+				       }
+				},		
+				{
+					'$unwind':'$userData'
+				},
+				{
+					$project:{user_id:1,
+						_id:0,
+						userName:"$userData.name",
+						follow:{$size : "$userData.follow"},
+						hasFollow : {
+                            $in:[1,{
+                                $setDifference:[
+                                {$map:{
+                                         input:"$userData.follow",
+                                         as:'following',
+                                         in:{$cond:{ if: {$eq: ["$$following.user_id" , ObjectID(request.payload.user_id)]},then:1,else:0}}
+                                        }},
+                                [false]]
+                            }]
+                         },
+						follower:{$size:"$userData.follower"},
+						image:"http://73.46.166.24/image/user/"}
+				}	
+
+				]);
+			}
+			else{
+				var data=[];
+			}
+
+			return h.response({ statusCode: 200, error:'', message:'Successfull', response:data}).code(200);
+
+		},
+		favouritePosts:async(request, h)=>{
+
+			var authenticate=await Users.findOne({_id: request.payload.user_id,access_key:request.payload.access_key});
+			if(authenticate==null){
+				    let err= Boom.unauthorized('Invalid request');
+	                err.output.payload.response = new Object();
+	                return err;  
+			}	
+
+				var data=await Users.aggregate
+					([
+						{
+							$match:{_id:ObjectID(request.payload.user_id)}
+						},
+						{
+							$project:{favourite:1,_id:0}
+						},		
+						{
+							$unwind:"$favourite"
+						},
+					    {
+					      	$replaceRoot: { newRoot: "$favourite"}
+					    },
+					    {
+						   $lookup:
+						       {
+						         from: 'posts',
+						         localField: "post_id",
+						         foreignField: "_id",
+						         as: "postData"
+						       }
+						},		
+						{
+							$unwind:"$postData"
+						},
+					    {
+					      	$replaceRoot: { newRoot: "$postData"}
+					    },{
+				   $lookup:
+				       {
+				         from: 'users',
+				         localField: "user_id",
+				         foreignField: "_id",
+				         as: "userData"
+				       }
+				},		
+				{
+					'$unwind':'$userData'
+				},
+				   {
+				     $lookup:
+				         {
+				            from: "categories",
+				            localField: "category",
+				            foreignField: "_id",
+				            as: "category"
+				        }
+				  },
+		     	  {
+					$project:
+						{
+						 	user_id:1,
+						 	access_key:1,
+						 	location:1,
+						 	category:1,
+						 	caption:1,
+						 	created_at:1,
+						 	hasFav:{
+						 		$let:{
+						 			vars:{a:1,b:1},
+						 			in:{$eq: ['$$a','$$b']}
+						 		}
+						 	},
+					 		likes: {$size : "$likes" },
+					 		hasLike : { $max : { $eq : [ "$likes.user_id",  request.payload.user_id] } },
+					 		comment:{$size:"$comments"},
+
+					 		// hasFollow:{
+					 		// 		$map:{
+					 		// 			input:"$follow",
+					 		// 			as:'following',
+					 		// 			in:{$cond:["$$following.user_id":{$eq:ObjectID(request.payload.viewer)},0,1]}
+					 		// 		}
+					 		// },
+					 		postImage: {$concat:["http://73.46.166.24/image/posts/","$image"]},
+					 		userData:{name:1,_id:1,image:{$concat:["http://73.46.166.24/image/user/"]}}
+						}	
+				}
+					])
+				return h.response({ statusCode: 200, error:'', message:'Successfull', response:data}).code(200);
+
+		},
+		deletePost:async(request, h)=>{
+			var authenticate=await Users.findOne({_id: request.payload.user_id,access_key:request.payload.access_key});
+			if(authenticate==null){
+				    let err= Boom.unauthorized('Invalid request');
+	                err.output.payload.response = new Object();
+	                return err;  
+			}	
+				
+				var data=await Post.count({_id:request.payload.post_id,user_id:request.payload.user_id});
+				if(data>0){
+					await Post.remove({_id:request.payload.post_id,user_id:request.payload.user_id});
+					await Users.update({},{ $pull: { favourite: { post_id: request.payload.post_id } } });
+				}
+				return h.response({ statusCode: 200, error:'', message:'Successfull'}).code(200);
+		}
+} 
