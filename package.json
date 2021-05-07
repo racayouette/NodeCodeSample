@@ -19,7 +19,7 @@
     "mongoose": "^4.13.7",
     "npm-latest-version": "^1.0.2",
     "password_hash": "^1.0.4",
-    "underscore": "^1.8.3",
+    "underscore": "^1.12.1",
     "uniqid": "^4.1.1"
   }
 }
