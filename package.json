@@ -16,7 +16,7 @@
     "good-squeeze": "^5.0.2",
     "hapi": "^17.1.1",
     "joi": "^13.0.2",
-    "mongoose": "^4.13.7",
+    "mongoose": "^5.13.15",
     "npm-latest-version": "^1.0.2",
     "password_hash": "^1.0.4",
     "underscore": "^1.8.3",
